@@ -1,12 +1,15 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.schemas.user import FullUserProfile, MultipleUsersResponse, CreateUserResponse
 from app.services.user import UserService
+import logging
+from app.dependencies import rate_limit
+
+logger = logging.getLogger(__name__)
 
 
 def create_user_router() -> APIRouter:
     user_router = APIRouter(
-        prefix="/user",
-        tags=["user"],
+        prefix="/user", tags=["user"], dependencies=[Depends(rate_limit)]
     )
     user_service = UserService()
 
@@ -18,7 +21,9 @@ def create_user_router() -> APIRouter:
 
     @user_router.get("/{user_id}", response_model=FullUserProfile)
     async def get_user_by_id(user_id: int):
+
         full_user_profile = await user_service.get_user_info(user_id)
+
         return full_user_profile
 
     @user_router.put("/{user_id}")
@@ -28,8 +33,9 @@ def create_user_router() -> APIRouter:
 
     @user_router.delete("/{user_id}")
     async def remove_user(user_id: int):
+        logger.info(f"About to delete user_id: {user_id}")
+
         await user_service.delete_user(user_id)
-        return None
 
     @user_router.post("/", response_model=CreateUserResponse)
     async def add_user(full_profile_info: FullUserProfile):
