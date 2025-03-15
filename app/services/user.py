@@ -15,14 +15,15 @@ users_content = {0: {"liked_posts": [1] * 9}}
 
 class UserService:
 
-    def __init__(self):
-        pass
+    def __init__(self, profile_infos: dict, users_content: dict):
+        self.profile_infos = profile_infos
+        self.users_content = users_content
 
     async def get_all_users_with_pagiantion(
         self, start: int, limit: int
     ) -> tuple[list[FullUserProfile], int]:
         list_of_users = []
-        keys = list(profile_infos.keys())
+        keys = list(self.profile_infos.keys())
         total = len(keys)
         for key in range(0, len(keys), 1):
             if key < start:
@@ -34,21 +35,19 @@ class UserService:
                 break
         return list_of_users, total
 
-    @staticmethod
-    async def get_user_info(user_id: int = 0) -> FullUserProfile:
+    async def get_user_info(self, user_id: int = 0) -> FullUserProfile:
         # currently reading from dictionary later read from database
-        if user_id not in profile_infos:
+        if user_id not in self.profile_infos:
             raise UserNotFound(user_id=user_id)
 
-        profile_info = profile_infos[user_id]
-        user_content = users_content[user_id]
+        profile_info = self.profile_infos[user_id]
+        user_content = self.users_content[user_id]
         user = User(**user_content)
         full_user_profile = {**profile_info, **user.model_dump()}
         return FullUserProfile(**full_user_profile)
 
-    @staticmethod
     async def create_update_user(
-        full_profile_info: FullUserProfile, new_user_id: Optional[int] = None
+        self, full_profile_info: FullUserProfile, new_user_id: Optional[int] = None
     ) -> int:
         """
         Create user and new unique user id if not exist otherwise update user
@@ -60,29 +59,24 @@ class UserService:
         Returns:
             user_id int: existing or new user id
         """
-        global profile_infos
-        global users_content
 
         if new_user_id is None:
-            new_user_id = len(profile_infos)
+            new_user_id = len(self.profile_infos)
         liked_posts = full_profile_info.liked_posts
         short_description = full_profile_info.short_description
         long_bio = full_profile_info.long_bio
 
-        users_content[new_user_id] = {"liked_posts": liked_posts}
-        profile_infos[new_user_id] = {
+        self.users_content[new_user_id] = {"liked_posts": liked_posts}
+        self.profile_infos[new_user_id] = {
             "short_description": short_description,
             "long_bio": long_bio,
         }
         return new_user_id
 
-    @staticmethod
-    async def delete_user(user_id: int):
-        global profile_infos
-        global users_content
+    async def delete_user(self, user_id: int):
 
-        if user_id not in profile_infos:
+        if user_id not in self.profile_infos:
             raise UserNotFound(user_id=user_id)
 
-        del profile_infos[user_id]
-        del users_content[user_id]
+        del self.profile_infos[user_id]
+        del self.users_content[user_id]
