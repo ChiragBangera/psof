@@ -1,23 +1,39 @@
 services:
- app:
-  build:
-    context: .
-    args:
-     - ENVIRONMENT=local
-  ports:
-    - "8080:8080"
-  entrypoint: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload" ]
-  volumes:
-    - ./app:/usr/src/app
+  app:
+    build:
+      context: .
+      args:
+        - ENVIRONMENT=local
+    ports:
+      - "8080:8080"
+    entrypoint: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload" ]
+    volumes:
+      - ./app:/usr/src/app
+      - ./models:/usr/src/models
+    environment:
+      - db_host=postgresql://postgres:postgres@postgresdb:5432/postgres
+    depends_on:
+      - postgresdb
 
- app-test:
-  build:
-    context: .
-    args:
-      - ENVIRONMENT=test
-  volumes:
-    - .:/usr/src
+  app-test:
+    build:
+      context: .
+      args:
+        - ENVIRONMENT=test
+    volumes:
+      - .:/usr/src
   # entrypoint: ["uv", "run", "pytest", "tests"]
-  environment:
-    - UV_NO_CREATE_VENV=1
+    environment:
+      - UV_NO_CREATE_VENV=1
 
+  postgresdb:
+    image: postgres:17.4-alpine
+    ports:
+      - "5432:5432"
+    env_file:
+      - .env-local
+    volumes:
+      - pgdb:/var/lib/postgresql/data
+
+volumes:
+  pgdb:
