@@ -1,28 +1,27 @@
 from typing import Optional
 from app.clients.db import DatabaseClient
-from app.schemas.user import User, FullUserProfile
-from app.exceptions import UserNotFound
-from sqlalchemy import select
+from app.schemas.user import FullUserProfile
+from app.exceptions import UserNotFound, UserAlreadyExist
+from sqlalchemy import select, delete, update
 from sqlalchemy.sql import func
 from sqlalchemy.sql.expression import Select
+from sqlalchemy.dialects.postgresql import insert
 
 
 class UserService:
-
     def __init__(self, database_client: DatabaseClient):
         self.database_client = database_client
 
-    async def get_all_users_with_pagiantion(
+    async def get_all_users_with_pagination(
         self, start: int, limit: int
     ) -> tuple[list[FullUserProfile], int]:
-
         query = self._get_user_info_query()
-        users = self.database_client.get_paginated(
+        users = await self.database_client.get_paginated(
             query=query, limit=limit, offset=start
         )
         total_query = select(func.count(self.database_client.user.c.id).label("total"))
-        total = self.database_client.get_first(query=total_query)["total"]
-
+        total_res = await self.database_client.get_first(query=total_query)
+        total = total_res["total"]
         user_infos = []
         for user in users:
             user_info = dict(user)
@@ -34,7 +33,7 @@ class UserService:
     async def get_user_info(self, user_id: int = 0) -> FullUserProfile:
         query = self._get_user_info_query(user_id=user_id)
 
-        user = self.database_client.get_first(query=query)
+        user = await self.database_client.get_first(query=query)
 
         if not user:
             raise UserNotFound(user_id=user_id)
@@ -43,30 +42,68 @@ class UserService:
 
         return FullUserProfile(**user_info)
 
-    async def create_update_user(
-        self, full_profile_info: FullUserProfile, new_user_id: Optional[int] = None
-    ) -> int:
+    async def create_user(self, full_profile_info: FullUserProfile) -> Optional[int]:
+        # alternatively could create pydantic model, but will require some refactor
+        # of other models to keep things clean
+        data = dict(
+            username=full_profile_info.username,
+            short_description=full_profile_info.short_description,
+            long_bio=full_profile_info.long_bio,
+        )
+        insert_stmt = (
+            insert(self.database_client.user)
+            .values([{**data}])
+            .returning(self.database_client.user.c.id)
+        )
 
-        if new_user_id is None:
-            new_user_id = len(self.profile_infos)
-        liked_posts = full_profile_info.liked_posts
-        short_description = full_profile_info.short_description
-        long_bio = full_profile_info.long_bio
+        insert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=["username"])
 
-        self.users_content[new_user_id] = {"liked_posts": liked_posts}
-        self.profile_infos[new_user_id] = {
-            "short_description": short_description,
-            "long_bio": long_bio,
-        }
+        res = await self.database_client.get_first(insert_stmt)
+        if not res:
+            raise UserAlreadyExist
+
+        new_user_id = res.id
         return new_user_id
 
+    async def create_update_user(
+        self, full_profile_info: FullUserProfile, user_id: int
+    ) -> int:
+        data_no_id = dict(
+            username=full_profile_info.username,
+            short_description=full_profile_info.short_description,
+            long_bio=full_profile_info.long_bio,
+        )
+
+        data = {**data_no_id, "id": user_id}
+
+        query = self._get_user_info_query(user_id=user_id)
+        user = await self.database_client.get_first(query=query)
+        
+        user_conflist_stmt = select(self.database_client.user.c.username).where(
+            self.database_client.user.c.username == full_profile_info.username,
+            self.database_client.user.c.id != user_id
+        )
+        
+        username_conflict = await self.database_client.get_first(user_conflist_stmt)
+        if username_conflict:
+            raise UserAlreadyExist
+           
+        if not user:
+            stmt = insert(self.database_client.user).values(**data).returning(self.database_client.user.c.id)
+            
+        else:    
+            stmt = update(self.database_client.user).where(self.database_client.user.c.id == user_id).values(**data_no_id).returning(self.database_client.user.c.id)
+
+        res = await self.database_client.get_first(stmt)
+
+        return user_id
+
     async def delete_user(self, user_id: int):
+        delete_stmt = delete(self.database_client.user).where(
+            self.database_client.user.c.id == user_id
+        )
 
-        if user_id not in self.profile_infos:
-            raise UserNotFound(user_id=user_id)
-
-        del self.profile_infos[user_id]
-        del self.users_content[user_id]
+        await self.database_client.execute_in_transaction(delete_stmt)
 
     def _get_user_info_query(self, user_id: Optional[int] = None) -> Select:
         liked_posts_query = select(
@@ -88,7 +125,7 @@ class UserService:
             liked_posts_query.c.liked_posts,
         ).join(
             liked_posts_query,
-            liked_posts_query.c.user_id == self.database_client.user.c.id,
+            self.database_client.user.c.id == liked_posts_query.c.user_id,
             isouter=True,
         )
         if user_id:
