@@ -22,9 +22,13 @@ services:
         - ENVIRONMENT=test
     volumes:
       - .:/usr/src
-  # entrypoint: ["uv", "run", "pytest", "tests"]
+    entrypoint: ["sleep", "infinity"]
     environment:
       - UV_NO_CREATE_VENV=1
+      - db_host=postgresql://postgres:postgres@testingdb:5432/postgres
+      - app_env=test
+    depends_on:
+      - testingdb
 
   postgresdb:
     image: postgres:17.4-alpine
@@ -34,6 +38,11 @@ services:
       - .env-local
     volumes:
       - pgdb:/var/lib/postgresql/data
+
+  testingdb:
+    image: postgres:17.4-alpine
+    env_file:
+      - .env-local
 
 volumes:
   pgdb:

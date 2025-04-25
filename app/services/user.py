@@ -78,21 +78,30 @@ class UserService:
 
         query = self._get_user_info_query(user_id=user_id)
         user = await self.database_client.get_first(query=query)
-        
+
         user_conflist_stmt = select(self.database_client.user.c.username).where(
             self.database_client.user.c.username == full_profile_info.username,
-            self.database_client.user.c.id != user_id
+            self.database_client.user.c.id != user_id,
         )
-        
+
         username_conflict = await self.database_client.get_first(user_conflist_stmt)
         if username_conflict:
             raise UserAlreadyExist
-           
+
         if not user:
-            stmt = insert(self.database_client.user).values(**data).returning(self.database_client.user.c.id)
-            
-        else:    
-            stmt = update(self.database_client.user).where(self.database_client.user.c.id == user_id).values(**data_no_id).returning(self.database_client.user.c.id)
+            stmt = (
+                insert(self.database_client.user)
+                .values(**data)
+                .returning(self.database_client.user.c.id)
+            )
+
+        else:
+            stmt = (
+                update(self.database_client.user)
+                .where(self.database_client.user.c.id == user_id)
+                .values(**data_no_id)
+                .returning(self.database_client.user.c.id)
+            )
 
         res = await self.database_client.get_first(stmt)
 
